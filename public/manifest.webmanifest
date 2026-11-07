@@ -1,0 +1,10 @@
+{
+  "name": "KIAI 64 — Karaté Rétro",
+  "short_name": "KIAI 64",
+  "start_url": "/",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#000000",
+  "theme_color": "#0c0a09",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

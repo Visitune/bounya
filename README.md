@@ -1,6 +1,6 @@
 # 🥋 KIAI 64 — Karaté Rétro
 
-Jeu de karaté au point, de style 8-bit, dans le navigateur. Il comprend un arbitre, un tournoi par ceintures contre l'IA, un duel local (clavier ou manettes) et un **combat en ligne à deux**.
+Jeu de karaté au point, de style 8-bit, dans le navigateur. Il comprend un arbitre, un tournoi par ceintures contre l'IA, un duel local au clavier, jouable sur mobile et tablette et un **combat en ligne à deux**.
 
 ## Jouer en local
 
@@ -13,9 +13,13 @@ npm run dev          # http://localhost:3000
 |---|---|---|
 | Bouger / sauter / s'accroupir | Flèches | Z Q S D (W A S D en QWERTY) |
 | Attaque | Espace | F |
-| Manettes | manette n°1 | manette n°2 |
 
 Il y a 5 coups selon la direction tenue avec l'attaque : rien, ↑, ↓, avant, arrière, plus l'attaque en l'air. Reculer permet de bloquer.
+
+## Mobile et tablette
+
+Bouton **JOUER EN PLEIN ÉCRAN** : le jeu passe en paysage avec une croix de direction (pouce gauche) et un gros bouton **FRAPPE** (pouce droit), comme Flèches + Espace.
+Astuce iPhone : Partager → **Sur l'écran d'accueil** pour un vrai plein écran.
 
 ## Jouer à deux en ligne
 

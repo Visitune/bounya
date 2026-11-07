@@ -68,6 +68,7 @@ function readGamepad(pad: Gamepad | null): number {
 export class InputManager {
   private codes = new Set<string>();
   private touchDirs = new Set<TouchDir>();
+  private touchAttack = false;
   /** Short pulses (frames remaining) injected by touch buttons */
   private pulseMask = 0;
   private pulseFrames = 0;
@@ -84,6 +85,7 @@ export class InputManager {
   public clear() {
     this.codes.clear();
     this.touchDirs.clear();
+    this.touchAttack = false;
     this.pulseMask = 0;
     this.pulseFrames = 0;
   }
@@ -94,6 +96,16 @@ export class InputManager {
 
   public touchDirUp(dir: TouchDir) {
     this.touchDirs.delete(dir);
+  }
+
+  /** Replace all held touch directions at once (virtual joystick). */
+  public setTouchDirs(dirs: TouchDir[]) {
+    this.touchDirs = new Set(dirs);
+  }
+
+  /** Virtual "space bar": held while the finger stays on the attack button. */
+  public setTouchAttack(held: boolean) {
+    this.touchAttack = held;
   }
 
   /** Convert a touch "move" button into a short input pulse relative to facing. */
@@ -144,6 +156,7 @@ export class InputManager {
     if (this.touchDirs.has('arrowdown')) m |= IN_DOWN;
     if (this.touchDirs.has('arrowleft')) m |= IN_LEFT;
     if (this.touchDirs.has('arrowright')) m |= IN_RIGHT;
+    if (this.touchAttack) m |= IN_ATTACK;
     if (this.pulseFrames > 0) {
       m |= this.pulseMask;
       this.pulseFrames--;

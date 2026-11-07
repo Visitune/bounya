@@ -1,308 +1,145 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { ArrowLeft, ArrowRight, ArrowUp, ArrowDown, Shield, Sparkles, Zap, Flame } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { TouchDir } from '../game/Input';
 
 interface TouchControlsProps {
-  onAction: (action: 'PUNCH_HIGH' | 'PUNCH_MID' | 'KICK_MID' | 'KICK_ROUNDHOUSE' | 'KICK_LOW_SWEEP' | 'KICK_FLYING' | 'JUMP' | 'CROUCH' | 'LEFT' | 'RIGHT') => void;
-  onDirectionDown: (dir: 'arrowleft' | 'arrowright' | 'arrowup' | 'arrowdown') => void;
-  onDirectionUp: (dir: 'arrowleft' | 'arrowright' | 'arrowup' | 'arrowdown') => void;
-  isMobileDevice?: boolean;
+  /** Held directions (same as the arrow keys) */
+  onDirs: (dirs: TouchDir[]) => void;
+  /** Big button = Space bar */
+  onAttack: (held: boolean) => void;
+  /** overlay = translucent on top of the game (play mode), panel = under the game */
+  variant: 'overlay' | 'panel';
 }
 
-export const TouchControls: React.FC<TouchControlsProps> = ({
-  onAction,
-  onDirectionDown,
-  onDirectionUp,
-  isMobileDevice = false
-}) => {
-  const [activeDir, setActiveDir] = useState<string | null>(null);
-  const [controlMode, setControlMode] = useState<'arcade' | 'direct'>('arcade');
+const vibrate = (ms: number) => {
+  try {
+    navigator.vibrate?.(ms);
+  } catch {
+    /* unsupported */
+  }
+};
 
-  const triggerHaptic = (pattern: number | number[] = 25) => {
-    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-      try {
-        navigator.vibrate(pattern);
-      } catch {}
+/**
+ * Simplest possible mobile controls, identical to the keyboard:
+ *  - left thumb: direction cross (slide your thumb, it follows — never gets stuck)
+ *  - right thumb: one big FRAPPE button (= Space)
+ */
+export const TouchControls: React.FC<TouchControlsProps> = ({ onDirs, onAttack, variant }) => {
+  const padRef = useRef<HTMLDivElement | null>(null);
+  const padPointer = useRef<number | null>(null);
+  const dirsRef = useRef<string>('');
+  const [dirs, setDirs] = useState<TouchDir[]>([]);
+  const [attackHeld, setAttackHeld] = useState(false);
+
+  const setPadDirs = (next: TouchDir[]) => {
+    const key = next.join();
+    if (key === dirsRef.current) return;
+    dirsRef.current = key;
+    if (next.length) vibrate(10);
+    setDirs(next);
+    onDirs(next);
+  };
+
+  const updatePad = (clientX: number, clientY: number) => {
+    const el = padRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const dx = (clientX - (r.left + r.width / 2)) / (r.width / 2);
+    const dy = (clientY - (r.top + r.height / 2)) / (r.height / 2);
+    const next: TouchDir[] = [];
+    if (Math.hypot(dx, dy) > 0.2) {
+      const t = 0.4; // allows diagonals (e.g. up + forward)
+      if (dx < -t) next.push('arrowleft');
+      if (dx > t) next.push('arrowright');
+      if (dy < -t) next.push('arrowup');
+      if (dy > t) next.push('arrowdown');
     }
+    setPadDirs(next);
   };
 
-  const handleDirStart = (dir: 'arrowleft' | 'arrowright' | 'arrowup' | 'arrowdown') => {
-    triggerHaptic(18);
-    setActiveDir(dir);
-    onDirectionDown(dir);
+  const releasePad = () => {
+    padPointer.current = null;
+    setPadDirs([]);
   };
 
-  const handleDirEnd = (dir: 'arrowleft' | 'arrowright' | 'arrowup' | 'arrowdown') => {
-    if (activeDir === dir) {
-      setActiveDir(null);
-    }
-    onDirectionUp(dir);
+  const attack = (held: boolean) => {
+    if (held) vibrate(25);
+    setAttackHeld(held);
+    onAttack(held);
   };
 
-  const handleAction = (action: Parameters<TouchControlsProps['onAction']>[0]) => {
-    triggerHaptic([20, 15, 30]);
-    onAction(action);
-  };
+  const isOverlay = variant === 'overlay';
+  const has = (d: TouchDir) => dirs.includes(d);
+  const arm = (on: boolean) =>
+    `absolute flex items-center justify-center text-2xl font-black rounded-xl pointer-events-none ${
+      on
+        ? 'bg-amber-500 text-stone-950'
+        : isOverlay
+        ? 'bg-white/20 text-white/80 border border-white/30'
+        : 'bg-stone-800 text-stone-200 border border-stone-700'
+    }`;
 
-  // Spacebar Attack Simulation using active direction
-  const handleSpaceAttack = () => {
-    triggerHaptic(35);
-    if (activeDir === 'arrowup') {
-      onAction('PUNCH_HIGH');
-    } else if (activeDir === 'arrowdown') {
-      onAction('KICK_LOW_SWEEP');
-    } else if (activeDir === 'arrowleft') {
-      onAction('KICK_ROUNDHOUSE');
-    } else if (activeDir === 'arrowright') {
-      onAction('KICK_MID');
-    } else {
-      onAction('PUNCH_MID');
-    }
-  };
+  const padSize = isOverlay ? 'w-[min(42vh,190px)] h-[min(42vh,190px)]' : 'w-44 h-44';
+  const fireSize = isOverlay ? 'w-[min(30vh,130px)] h-[min(30vh,130px)]' : 'w-32 h-32';
 
   return (
-    <div className="w-full max-w-[960px] mx-auto select-none touch-none">
-      {/* Control style tabs */}
-      <div className="flex items-center justify-between px-2 mb-2 text-xs">
-        <div className="flex items-center gap-1.5 text-stone-400">
-          <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-          <span className="font-bold text-stone-300">Manette Virtuelle Mobile / Tablette</span>
-        </div>
-
-        <div className="flex items-center gap-1 bg-stone-900/90 p-0.5 rounded-lg border border-stone-800">
-          <button
-            onClick={() => setControlMode('arcade')}
-            className={`px-2.5 py-1 rounded text-[11px] font-bold transition-colors ${
-              controlMode === 'arcade'
-                ? 'bg-amber-500 text-stone-950 shadow-sm'
-                : 'text-stone-400 hover:text-stone-200'
-            }`}
-          >
-            Mode Arcade (Pouces G/D)
-          </button>
-          <button
-            onClick={() => setControlMode('direct')}
-            className={`px-2.5 py-1 rounded text-[11px] font-bold transition-colors ${
-              controlMode === 'direct'
-                ? 'bg-amber-500 text-stone-950 shadow-sm'
-                : 'text-stone-400 hover:text-stone-200'
-            }`}
-          >
-            Boutons Directs
-          </button>
-        </div>
+    <div
+      className={`select-none touch-none ${
+        isOverlay
+          ? 'absolute inset-x-0 bottom-0 flex items-end justify-between px-[max(env(safe-area-inset-left),14px)] pb-[max(env(safe-area-inset-bottom),12px)] pointer-events-none'
+          : 'w-full max-w-[960px] mt-3 bg-stone-950/90 border border-stone-800 rounded-2xl p-4 flex items-center justify-between'
+      }`}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      {/* Direction cross */}
+      <div
+        ref={padRef}
+        className={`${padSize} relative pointer-events-auto`}
+        onPointerDown={(e) => {
+          e.preventDefault();
+          padPointer.current = e.pointerId;
+          e.currentTarget.setPointerCapture(e.pointerId);
+          updatePad(e.clientX, e.clientY);
+        }}
+        onPointerMove={(e) => {
+          if (padPointer.current === e.pointerId) updatePad(e.clientX, e.clientY);
+        }}
+        onPointerUp={(e) => padPointer.current === e.pointerId && releasePad()}
+        onPointerCancel={(e) => padPointer.current === e.pointerId && releasePad()}
+        onLostPointerCapture={(e) => padPointer.current === e.pointerId && releasePad()}
+      >
+        <div className={`${arm(has('arrowup'))} left-1/3 top-0 w-1/3 h-1/3`}>▲</div>
+        <div className={`${arm(has('arrowdown'))} left-1/3 bottom-0 w-1/3 h-1/3`}>▼</div>
+        <div className={`${arm(has('arrowleft'))} left-0 top-1/3 w-1/3 h-1/3`}>◀</div>
+        <div className={`${arm(has('arrowright'))} right-0 top-1/3 w-1/3 h-1/3`}>▶</div>
       </div>
 
-      {controlMode === 'arcade' ? (
-        /* Dual-Thumb Arcade Layout: Left Thumb Joystick + Right Thumb Attack Cluster */
-        <div className="bg-stone-950/90 border border-stone-800 rounded-2xl p-3 grid grid-cols-2 gap-4 shadow-2xl">
-          {/* Left Thumb: Ergonomic D-PAD */}
-          <div className="flex flex-col items-center justify-center">
-            <span className="text-[10px] font-extrabold text-stone-400 mb-2 uppercase tracking-wider">
-              Pouce Gauche · Mouvements
-            </span>
-
-            <div className="relative w-36 h-36 flex items-center justify-center bg-stone-900/80 rounded-full border border-stone-800/80 shadow-inner">
-              {/* Center Pivot Indicator */}
-              <div className="w-9 h-9 rounded-full bg-stone-950 border border-stone-700/80 flex items-center justify-center text-stone-500 font-pixel text-[8px] pointer-events-none">
-                C64
-              </div>
-
-              {/* UP */}
-              <button
-                onPointerDown={() => handleDirStart('arrowup')}
-                onPointerUp={() => handleDirEnd('arrowup')}
-                onPointerCancel={() => handleDirEnd('arrowup')}
-                className={`absolute top-1.5 w-11 h-11 rounded-xl flex items-center justify-center border transition-all active:scale-95 ${
-                  activeDir === 'arrowup'
-                    ? 'bg-amber-500 text-stone-950 border-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.5)]'
-                    : 'bg-stone-800 text-stone-300 border-stone-700 hover:bg-stone-700'
-                }`}
-                title="Sauter"
-              >
-                <ArrowUp className="w-5 h-5 stroke-[2.5]" />
-              </button>
-
-              {/* DOWN */}
-              <button
-                onPointerDown={() => handleDirStart('arrowdown')}
-                onPointerUp={() => handleDirEnd('arrowdown')}
-                onPointerCancel={() => handleDirEnd('arrowdown')}
-                className={`absolute bottom-1.5 w-11 h-11 rounded-xl flex items-center justify-center border transition-all active:scale-95 ${
-                  activeDir === 'arrowdown'
-                    ? 'bg-amber-500 text-stone-950 border-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.5)]'
-                    : 'bg-stone-800 text-stone-300 border-stone-700 hover:bg-stone-700'
-                }`}
-                title="S'accroupir / Esquive"
-              >
-                <ArrowDown className="w-5 h-5 stroke-[2.5]" />
-              </button>
-
-              {/* LEFT */}
-              <button
-                onPointerDown={() => handleDirStart('arrowleft')}
-                onPointerUp={() => handleDirEnd('arrowleft')}
-                onPointerCancel={() => handleDirEnd('arrowleft')}
-                className={`absolute left-1.5 w-11 h-11 rounded-xl flex items-center justify-center border transition-all active:scale-95 ${
-                  activeDir === 'arrowleft'
-                    ? 'bg-amber-500 text-stone-950 border-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.5)]'
-                    : 'bg-stone-800 text-stone-300 border-stone-700 hover:bg-stone-700'
-                }`}
-                title="Reculer / Garde"
-              >
-                <ArrowLeft className="w-5 h-5 stroke-[2.5]" />
-              </button>
-
-              {/* RIGHT */}
-              <button
-                onPointerDown={() => handleDirStart('arrowright')}
-                onPointerUp={() => handleDirEnd('arrowright')}
-                onPointerCancel={() => handleDirEnd('arrowright')}
-                className={`absolute right-1.5 w-11 h-11 rounded-xl flex items-center justify-center border transition-all active:scale-95 ${
-                  activeDir === 'arrowright'
-                    ? 'bg-amber-500 text-stone-950 border-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.5)]'
-                    : 'bg-stone-800 text-stone-300 border-stone-700 hover:bg-stone-700'
-                }`}
-                title="Avancer"
-              >
-                <ArrowRight className="w-5 h-5 stroke-[2.5]" />
-              </button>
-            </div>
-          </div>
-
-          {/* Right Thumb: Arcade Action Cluster */}
-          <div className="flex flex-col items-center justify-center">
-            <span className="text-[10px] font-extrabold text-stone-400 mb-2 uppercase tracking-wider">
-              Pouce Droit · Frappes
-            </span>
-
-            <div className="relative w-36 h-36 flex items-center justify-center">
-              {/* Massive Primary Strike Button (Espace adaptatif) */}
-              <button
-                onPointerDown={handleSpaceAttack}
-                className="w-20 h-20 rounded-full bg-gradient-to-tr from-amber-600 via-amber-500 to-yellow-400 active:from-amber-700 active:to-yellow-500 text-stone-950 font-black text-xs uppercase flex flex-col items-center justify-center shadow-[0_0_20px_rgba(245,158,11,0.4)] border-2 border-yellow-200 active:scale-95 transition-transform"
-                title="Frapper (Espace combiné à la direction)"
-              >
-                <Zap className="w-6 h-6 stroke-[3]" />
-                <span className="text-[10px] font-extrabold mt-0.5 tracking-tight">FRAPPE</span>
-              </button>
-
-              {/* Satellite Fast Action 1: High Punch */}
-              <button
-                onPointerDown={() => handleAction('PUNCH_HIGH')}
-                className="absolute top-0 right-1 w-10 h-10 rounded-full bg-red-600/90 active:bg-red-500 text-white font-bold text-[10px] flex items-center justify-center border border-red-400 shadow-md active:scale-90 transition-transform"
-                title="Coup de Poing Haut (Ippon)"
-              >
-                Haut
-              </button>
-
-              {/* Satellite Fast Action 2: Roundhouse Kick */}
-              <button
-                onPointerDown={() => handleAction('KICK_ROUNDHOUSE')}
-                className="absolute right-0 bottom-4 w-10 h-10 rounded-full bg-purple-600/90 active:bg-purple-500 text-white font-bold text-[10px] flex items-center justify-center border border-purple-400 shadow-md active:scale-90 transition-transform"
-                title="Pied Circulaire (Ippon)"
-              >
-                Circ.
-              </button>
-
-              {/* Satellite Fast Action 3: Low Sweep */}
-              <button
-                onPointerDown={() => handleAction('KICK_LOW_SWEEP')}
-                className="absolute bottom-0 left-3 w-10 h-10 rounded-full bg-blue-600/90 active:bg-blue-500 text-white font-bold text-[10px] flex items-center justify-center border border-blue-400 shadow-md active:scale-90 transition-transform"
-                title="Balayette Basse"
-              >
-                Balaye
-              </button>
-
-              {/* Satellite Fast Action 4: Flying Kick */}
-              <button
-                onPointerDown={() => handleAction('KICK_FLYING')}
-                className="absolute top-1 left-2 w-10 h-10 rounded-full bg-emerald-600/90 active:bg-emerald-500 text-white font-bold text-[10px] flex items-center justify-center border border-emerald-400 shadow-md active:scale-90 transition-transform"
-                title="Pied Sauté Volant (Ippon)"
-              >
-                Volant
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : (
-        /* Direct Action Grid Mode */
-        <div className="bg-stone-950/90 border border-stone-800 rounded-2xl p-3 grid grid-cols-1 md:grid-cols-2 gap-3 shadow-xl">
-          {/* Movement Box */}
-          <div className="flex items-center justify-between bg-stone-900/60 p-2.5 rounded-xl border border-stone-800/80">
-            <span className="text-xs font-bold text-stone-300">Déplacement :</span>
-            <div className="grid grid-cols-4 gap-1.5">
-              <button
-                onPointerDown={() => handleDirStart('arrowleft')}
-                onPointerUp={() => handleDirEnd('arrowleft')}
-                className="h-11 w-11 bg-stone-800 active:bg-amber-500 rounded-lg flex items-center justify-center text-stone-200 active:text-stone-950 font-bold border border-stone-700"
-              >
-                <ArrowLeft className="w-5 h-5" />
-              </button>
-              <button
-                onPointerDown={() => handleDirStart('arrowright')}
-                onPointerUp={() => handleDirEnd('arrowright')}
-                className="h-11 w-11 bg-stone-800 active:bg-amber-500 rounded-lg flex items-center justify-center text-stone-200 active:text-stone-950 font-bold border border-stone-700"
-              >
-                <ArrowRight className="w-5 h-5" />
-              </button>
-              <button
-                onPointerDown={() => handleDirStart('arrowup')}
-                onPointerUp={() => handleDirEnd('arrowup')}
-                className="h-11 w-11 bg-stone-800 active:bg-amber-500 rounded-lg flex items-center justify-center text-stone-200 active:text-stone-950 font-bold border border-stone-700"
-              >
-                <ArrowUp className="w-5 h-5" />
-              </button>
-              <button
-                onPointerDown={() => handleDirStart('arrowdown')}
-                onPointerUp={() => handleDirEnd('arrowdown')}
-                className="h-11 w-11 bg-stone-800 active:bg-amber-500 rounded-lg flex items-center justify-center text-stone-200 active:text-stone-950 font-bold border border-stone-700"
-              >
-                <ArrowDown className="w-5 h-5" />
-              </button>
-            </div>
-          </div>
-
-          {/* Quick Attacks Grid */}
-          <div className="grid grid-cols-3 gap-1.5">
-            <button
-              onClick={() => handleAction('PUNCH_MID')}
-              className="h-11 bg-stone-800 active:bg-amber-600 rounded-lg text-xs font-bold text-stone-200 border border-stone-700 shadow"
-            >
-              Poing Direct
-            </button>
-            <button
-              onClick={() => handleAction('PUNCH_HIGH')}
-              className="h-11 bg-amber-950/60 active:bg-amber-600 rounded-lg text-xs font-bold text-amber-300 border border-amber-700/60 shadow"
-            >
-              Poing Haut ★
-            </button>
-            <button
-              onClick={() => handleAction('KICK_MID')}
-              className="h-11 bg-stone-800 active:bg-amber-600 rounded-lg text-xs font-bold text-stone-200 border border-stone-700 shadow"
-            >
-              Pied Frontal
-            </button>
-            <button
-              onClick={() => handleAction('KICK_ROUNDHOUSE')}
-              className="h-11 bg-purple-950/60 active:bg-purple-600 rounded-lg text-xs font-bold text-purple-300 border border-purple-700/60 shadow"
-            >
-              Circulaire ★
-            </button>
-            <button
-              onClick={() => handleAction('KICK_LOW_SWEEP')}
-              className="h-11 bg-stone-800 active:bg-amber-600 rounded-lg text-xs font-bold text-stone-200 border border-stone-700 shadow"
-            >
-              Balayette Basse
-            </button>
-            <button
-              onClick={() => handleAction('KICK_FLYING')}
-              className="h-11 bg-red-950/60 active:bg-red-600 rounded-lg text-xs font-bold text-red-300 border border-red-700/60 shadow"
-            >
-              Pied Volant ★
-            </button>
-          </div>
+      {!isOverlay && (
+        <div className="hidden sm:block text-center text-xs text-stone-400 max-w-[240px]">
+          Comme au clavier : <strong className="text-stone-200">flèches</strong> +{' '}
+          <strong className="text-amber-300">FRAPPE</strong> (= Espace)
         </div>
       )}
+
+      {/* Single attack button (= Space) */}
+      <button
+        className={`${fireSize} pointer-events-auto rounded-full flex items-center justify-center font-black text-stone-950 text-sm border-4 transition-transform ${
+          attackHeld
+            ? 'scale-95 bg-amber-300 border-white'
+            : isOverlay
+            ? 'bg-amber-500/80 border-yellow-200/80'
+            : 'bg-amber-500 border-yellow-200'
+        }`}
+        onPointerDown={(e) => {
+          e.preventDefault();
+          e.currentTarget.setPointerCapture(e.pointerId);
+          attack(true);
+        }}
+        onPointerUp={() => attack(false)}
+        onPointerCancel={() => attack(false)}
+        onLostPointerCapture={() => attack(false)}
+      >
+        FRAPPE
+      </button>
     </div>
   );
 };

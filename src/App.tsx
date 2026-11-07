@@ -7,7 +7,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { GameEngine, MatchWinner, TICK_RATE } from './game/GameEngine';
 import { GameRenderer } from './game/GameRenderer';
 import { CANVAS_HEIGHT, CANVAS_WIDTH, BELT_RANKS } from './game/constants';
-import { GAME_KEY_CODES, inputManager, TouchAction, TouchDir } from './game/Input';
+import { GAME_KEY_CODES, inputManager, TouchDir } from './game/Input';
 import { GameHud } from './components/GameHud';
 import { MoveGuideModal } from './components/MoveGuideModal';
 import { TouchControls } from './components/TouchControls';
@@ -17,7 +17,7 @@ import { soundEngine } from './audio/SoundEngine';
 import { MatchStartInfo, multiplayerClient } from './multiplayer/MultiplayerClient';
 import { LockstepSession } from './multiplayer/Lockstep';
 import { GameMode, Fighter } from './types/game';
-import { Swords, Trophy, BookOpen, Volume2, Sparkles, Maximize2, Minimize2, Smartphone, Globe, Gamepad2, WifiOff, Loader2 } from 'lucide-react';
+import { Swords, Trophy, BookOpen, Volume2, Sparkles, Maximize2, Minimize2, Smartphone, Globe, WifiOff, Loader2, Play, X, RotateCcw } from 'lucide-react';
 
 const STEP_MS = 1000 / TICK_RATE;
 const MAX_STEPS_PER_FRAME = 15;
@@ -47,7 +47,9 @@ export default function App() {
   const [isRetro, setIsRetro] = useState<boolean>(false);
   const [isHelpOpen, setIsHelpOpen] = useState<boolean>(false);
   const [matchWinner, setMatchWinner] = useState<MatchWinner>(null);
-  const [showTouchControls, setShowTouchControls] = useState<boolean>(true);
+  const [showTouchControls, setShowTouchControls] = useState<boolean>(false);
+  const [isPlayMode, setIsPlayMode] = useState<boolean>(false);
+  const playFsRef = useRef(false);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [isMobileDevice, setIsMobileDevice] = useState<boolean>(false);
   const [isPortrait, setIsPortrait] = useState<boolean>(false);
@@ -56,7 +58,6 @@ export default function App() {
   const [netStatus, setNetStatus] = useState<NetStatus>('off');
   const [netWaiting, setNetWaiting] = useState<boolean>(false);
   const [ping, setPing] = useState<number>(0);
-  const [padCount, setPadCount] = useState<number>(0);
 
   const isMatchOver = phase === 'MATCH_OVER';
 
@@ -75,6 +76,7 @@ export default function App() {
       setIsPortrait(window.innerHeight > window.innerWidth && isTouch);
     };
     checkMobile();
+    if ('ontouchstart' in window || navigator.maxTouchPoints > 0) setShowTouchControls(true);
     window.addEventListener('resize', checkMobile);
     window.addEventListener('orientationchange', checkMobile);
 
@@ -82,7 +84,15 @@ export default function App() {
       setIsOnlineModalOpen(true);
     }
 
-    const handleFullscreenChange = () => setIsFullscreen(!!document.fullscreenElement);
+    const handleFullscreenChange = () => {
+      const fs = !!document.fullscreenElement;
+      setIsFullscreen(fs);
+      // Android "back" / Esc leaves fullscreen => leave play mode too
+      if (!fs && playFsRef.current) {
+        playFsRef.current = false;
+        setIsPlayMode(false);
+      }
+    };
     document.addEventListener('fullscreenchange', handleFullscreenChange);
 
     return () => {
@@ -106,19 +116,14 @@ export default function App() {
     };
     const handleKeyUp = (e: KeyboardEvent) => inputManager.keyUp(e.code);
     const handleBlur = () => inputManager.clear();
-    const handlePad = () => setPadCount(inputManager.connectedPadCount());
 
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
     window.addEventListener('blur', handleBlur);
-    window.addEventListener('gamepadconnected', handlePad);
-    window.addEventListener('gamepaddisconnected', handlePad);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleBlur);
-      window.removeEventListener('gamepadconnected', handlePad);
-      window.removeEventListener('gamepaddisconnected', handlePad);
     };
   }, [ensureMusic]);
 
@@ -266,23 +271,49 @@ export default function App() {
     setMatchWinner(null);
   };
 
-  const myFighter = () => (engine.mode === 'ONLINE' && engine.myOnlineRole === 'p2' ? engine.p2 : engine.p1);
-
-  const handleActionTrigger = (action: TouchAction) => {
-    ensureMusic();
-    inputManager.touchAction(action, myFighter().facing);
-  };
-
   const handleToggleFullscreen = () => {
     if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
     else document.exitFullscreen().catch(() => {});
   };
 
-  const handleDirectionDown = (dir: TouchDir) => {
+  const handleTouchDirs = (dirs: TouchDir[]) => {
     ensureMusic();
-    inputManager.touchDirDown(dir);
+    inputManager.setTouchDirs(dirs);
   };
-  const handleDirectionUp = (dir: TouchDir) => inputManager.touchDirUp(dir);
+  const handleTouchAttack = (held: boolean) => {
+    ensureMusic();
+    inputManager.setTouchAttack(held);
+  };
+
+  /** Mobile / tablet: full-screen landscape game with translucent controls on top. */
+  const enterPlayMode = async () => {
+    ensureMusic();
+    setIsPlayMode(true);
+    try {
+      if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+        await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+        playFsRef.current = true;
+      }
+      const orientation = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
+      await orientation.lock?.('landscape');
+    } catch {
+      /* iPhone Safari: no element fullscreen / orientation lock => CSS full-screen only */
+    }
+  };
+
+  const exitPlayMode = () => {
+    inputManager.clear();
+    setIsPlayMode(false);
+    try {
+      screen.orientation?.unlock?.();
+    } catch {
+      /* ignore */
+    }
+    if (document.fullscreenElement) {
+      playFsRef.current = false;
+      document.exitFullscreen().catch(() => {});
+    }
+  };
 
   const winnerFighter = matchWinner === 'p1' ? p1State : matchWinner === 'p2' ? p2State : null;
 
@@ -411,54 +442,123 @@ export default function App() {
           onReset={handleResetMatch}
         />
 
-        <div className="relative w-full max-w-[960px] aspect-[16/9] bg-black rounded-b-xl overflow-hidden border-x border-b border-stone-800 shadow-2xl">
-          <canvas
-            ref={canvasRef}
-            width={CANVAS_WIDTH}
-            height={CANVAS_HEIGHT}
-            className="w-full h-full block object-contain"
-            style={isRetro ? { imageRendering: 'pixelated' } : undefined}
-          />
-          {isCrtEnabled && <div className="absolute inset-0 crt-overlay crt-vignette pointer-events-none" />}
-          {!isMusicPlaying && !isMuted && (
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-stone-900/90 border border-amber-500/40 px-4 py-1.5 rounded-full flex items-center gap-2 text-xs text-amber-200 pointer-events-none animate-bounce">
-              <Volume2 className="w-3.5 h-3.5 text-amber-400" />
-              <span>Appuyez sur une touche pour lancer la musique</span>
-            </div>
+        {isMobileDevice && !isPlayMode && (
+          <button
+            onClick={enterPlayMode}
+            className="w-full max-w-[960px] mb-2 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-400 text-stone-950 font-black text-sm flex items-center justify-center gap-2 shadow-lg active:scale-[0.98]"
+          >
+            <Play className="w-5 h-5" />
+            <span>JOUER EN PLEIN ÉCRAN</span>
+          </button>
+        )}
+
+        <div
+          className={
+            isPlayMode
+              ? 'fixed inset-0 z-[45] bg-black flex items-center justify-center overflow-hidden touch-none'
+              : 'relative w-full max-w-[960px]'
+          }
+        >
+          <div
+            className={`relative aspect-[16/9] bg-black overflow-hidden ${
+              isPlayMode
+                ? 'w-[min(100vw,calc(100dvh*16/9))]'
+                : 'w-full rounded-b-xl border-x border-b border-stone-800 shadow-2xl'
+            }`}
+          >
+            <canvas
+              ref={canvasRef}
+              width={CANVAS_WIDTH}
+              height={CANVAS_HEIGHT}
+              className="w-full h-full block object-contain"
+              style={isRetro ? { imageRendering: 'pixelated' } : undefined}
+            />
+            {isCrtEnabled && <div className="absolute inset-0 crt-overlay crt-vignette pointer-events-none" />}
+            {!isMusicPlaying && !isMuted && !isPlayMode && (
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-stone-900/90 border border-amber-500/40 px-4 py-1.5 rounded-full flex items-center gap-2 text-xs text-amber-200 pointer-events-none animate-bounce">
+                <Volume2 className="w-3.5 h-3.5 text-amber-400" />
+                <span>Appuyez sur une touche pour lancer la musique</span>
+              </div>
+            )}
+          </div>
+
+          {isPlayMode && (
+            <>
+              {/* Compact HUD */}
+              <div className="absolute top-0 inset-x-0 flex items-start justify-between gap-2 px-[max(env(safe-area-inset-left),10px)] pt-[max(env(safe-area-inset-top),6px)] pointer-events-none">
+                <div className="bg-black/55 rounded-lg px-2.5 py-1 text-[11px] font-bold text-white flex items-center gap-2">
+                  <span className="truncate max-w-[22vw]">{p1State.name}</span>
+                  <span className="font-pixel text-amber-300 text-[10px]">{p1State.points / 2}</span>
+                </div>
+                <div className="bg-black/55 rounded-lg px-3 py-1 font-pixel text-amber-300 text-xs">
+                  {roundTime}
+                  {mode === 'ONLINE' && netStatus === 'playing' && (
+                    <span className="ml-2 font-sans text-[10px] text-stone-300">{ping} ms{netWaiting ? ' ⏳' : ''}</span>
+                  )}
+                </div>
+                <div className="flex items-start gap-1.5">
+                  <div className="bg-black/55 rounded-lg px-2.5 py-1 text-[11px] font-bold text-white flex items-center gap-2">
+                    <span className="font-pixel text-amber-300 text-[10px]">{p2State.points / 2}</span>
+                    <span className="truncate max-w-[22vw]">{p2State.name}</span>
+                  </div>
+                  <button
+                    onClick={handleResetMatch}
+                    className="pointer-events-auto w-9 h-9 rounded-lg bg-black/55 text-white flex items-center justify-center"
+                    title="Recommencer"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={exitPlayMode}
+                    className="pointer-events-auto w-9 h-9 rounded-lg bg-black/55 text-white flex items-center justify-center"
+                    title="Quitter le plein écran"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              {isMobileDevice && <TouchControls variant="overlay" onDirs={handleTouchDirs} onAttack={handleTouchAttack} />}
+
+              {isPortrait && (
+                <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center gap-3 text-amber-200 text-sm text-center px-6">
+                  <Smartphone className="w-10 h-10 rotate-90 text-amber-400" />
+                  <span>
+                    Tournez votre téléphone en <strong>mode paysage</strong>
+                  </span>
+                  <button onClick={exitPlayMode} className="mt-2 px-3 py-1.5 rounded bg-stone-800 text-stone-200 text-xs">
+                    Quitter
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </div>
 
-        <div className="w-full max-w-[960px] mt-3 bg-stone-900/60 border border-stone-800/80 rounded-xl p-3 flex flex-wrap items-center justify-between text-xs text-stone-300 gap-2">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-bold text-amber-400">{mode === 'TWO_PLAYER' ? 'J1 :' : 'Commandes :'}</span>
-            <span className="bg-stone-800 px-2 py-0.5 rounded font-mono text-[11px] text-stone-200">Flèches + Espace</span>
-            {mode === 'TWO_PLAYER' && (
-              <>
-                <span className="font-bold text-red-400 ml-1">J2 :</span>
-                <span className="bg-stone-800 px-2 py-0.5 rounded font-mono text-[11px] text-stone-200">ZQSD + F (WASD + F en QWERTY)</span>
-              </>
-            )}
-            <span className="bg-stone-800 px-2 py-0.5 rounded font-mono text-[11px] text-amber-300">Attaque + ↑ / ← / ↓ / → / en l'air = 5 coups</span>
-            <span className={`px-2 py-0.5 rounded font-mono text-[11px] flex items-center gap-1 ${padCount ? 'bg-emerald-900/60 text-emerald-300' : 'bg-stone-800 text-stone-400'}`}>
-              <Gamepad2 className="w-3.5 h-3.5" />
-              {padCount ? `${padCount} manette${padCount > 1 ? 's' : ''}` : 'Manettes : branchez et appuyez sur un bouton'}
-            </span>
+        {!isPlayMode && (
+          <div className="w-full max-w-[960px] mt-3 bg-stone-900/60 border border-stone-800/80 rounded-xl p-3 flex flex-wrap items-center justify-between text-xs text-stone-300 gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-bold text-amber-400">{mode === 'TWO_PLAYER' ? 'J1 :' : 'Commandes :'}</span>
+              <span className="bg-stone-800 px-2 py-0.5 rounded font-mono text-[11px] text-stone-200">Flèches = bouger · Espace = frapper</span>
+              {mode === 'TWO_PLAYER' && (
+                <>
+                  <span className="font-bold text-red-400 ml-1">J2 :</span>
+                  <span className="bg-stone-800 px-2 py-0.5 rounded font-mono text-[11px] text-stone-200">ZQSD + F</span>
+                </>
+              )}
+              <span className="text-[11px] text-stone-400">Astuce : tenez une flèche en frappant pour changer de coup · reculer = parer</span>
+            </div>
+            <button
+              onClick={() => setShowTouchControls(!showTouchControls)}
+              className="text-[11px] text-stone-400 hover:text-amber-400 underline underline-offset-2"
+            >
+              {showTouchControls ? 'Masquer la manette tactile' : 'Afficher la manette tactile'}
+            </button>
           </div>
-          <button
-            onClick={() => setShowTouchControls(!showTouchControls)}
-            className="text-[11px] text-stone-400 hover:text-amber-400 underline underline-offset-2"
-          >
-            {showTouchControls ? 'Masquer la manette tactile' : 'Afficher la manette tactile'}
-          </button>
-        </div>
+        )}
 
-        {showTouchControls && (
-          <TouchControls
-            onAction={handleActionTrigger}
-            onDirectionDown={handleDirectionDown}
-            onDirectionUp={handleDirectionUp}
-            isMobileDevice={isMobileDevice}
-          />
+        {showTouchControls && !isPlayMode && (
+          <TouchControls variant="panel" onDirs={handleTouchDirs} onAttack={handleTouchAttack} />
         )}
 
         {mode === 'TOURNAMENT' && (
