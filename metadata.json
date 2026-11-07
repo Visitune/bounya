@@ -1,0 +1,5 @@
+{
+  "name": "KIAI 64 — Karaté Rétro",
+  "description": "Jeu de karaté rétro façon 8-bit : arbitre, tournoi par ceintures, duel local (clavier ou manettes) et combat en ligne à deux.",
+  "requestFramePermissions": []
+}
